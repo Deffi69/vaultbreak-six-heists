@@ -12,7 +12,7 @@
 // The copy is byte-for-byte and the dossier is a pure function of the
 // files it reads, so two runs write identical bytes.
 
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
@@ -29,8 +29,9 @@ if (existsSync(join(here, 'screenshots'))) {
 
 // The caps mirror the bounty gate: 4 screenshots at most 256 KiB each,
 // game/ at most 993 files/directories and 48 MiB, paths at most 1000 bytes.
+const dossierPath = join(out, 'dossier.json');
 writeFileSync(
-  join(out, 'dossier.json'),
+  dossierPath,
   buildDossier(out, {
     text_max_bytes: 163840,
     screenshots: { max: 4, max_bytes: 262144 },
@@ -39,3 +40,19 @@ writeFileSync(
     game_path_max_bytes: 1000,
   }),
 );
+
+// Fail loudly on a partial hand-in instead of shipping a broken entry:
+// the dossier only exists when buildDossier accepted game/ and
+// screenshots/, so re-read it and confirm the entry's essentials are
+// actually on disk before the grader ever sees them.
+const dossierBytes = statSync(dossierPath).size;
+if (dossierBytes < 100 || dossierBytes > 1.5 * 1024 * 1024) {
+  throw new Error(`dossier.json has an unexpected size (${dossierBytes} bytes)`);
+}
+if (!existsSync(join(out, 'game', 'index.html'))) {
+  throw new Error('game/index.html is missing from the output');
+}
+const shotFiles = readdirSync(join(out, 'screenshots')).filter((f) => !f.startsWith('.'));
+if (shotFiles.length < 3 || shotFiles.length > 4) {
+  throw new Error(`expected 3 or 4 screenshots, found ${shotFiles.length}`);
+}
